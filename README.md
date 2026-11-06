@@ -1,4 +1,4 @@
-# Fohor (फोहोर): where the Kathmandu Valley's waste goes, and what happens when it can't
+# Kathmandu Waste Flow Pipeline: where the Kathmandu Valley's waste goes, and what happens when it can't
 
 [![Try it live](https://img.shields.io/badge/Try_it-live-2ea44f?style=for-the-badge)](https://fohor-kathmandu-waste.onrender.com)
 
