@@ -26,10 +26,12 @@ Each row says what the pipeline does and which test proves it. "Last good" means
 | **The schedule stops, or Overture stops publishing, or changes its layout so we list nothing new** | `ReleaseAgeDays` > 60 alarms, and a missing metric counts as breaching, so a dead sensor alarms too | alarm | template |
 | **A scheduled run is dropped** | It goes to the scheduler DLQ, which alarms | alarm | template |
 | **Someone edits an override's OSM node** | Overrides match the record id without its `@version`, so they keep matching; an override that matches nothing warns | warn | `test_facility_rules` |
+| **Someone rebuilds an older release while a newer one is published** | Its gold tables are refreshed, but `_current.json` only moves forward, so readers stay on the newer release; the run report says `becomes_current: false` | - | `test_rebuilding_an_older_release_does_not_roll_readers_back` |
+| **A rebuild's silver build is blocked** | `rebuild` stops with exit 1 and writes the quality report; gold is not rebuilt from the release's earlier silver | - | `test_rebuild_stops_when_silver_is_blocked` |
 | **A bad quality rule blocks a good release** | Gold stays on last good; the report in `quality/` names the check; fix the rule and `make rebuild RELEASE=…` (no upstream reads) | - | - |
 
 ## Recovery
 
 - **Rebuild a release without touching upstream:** `python -m fohor rebuild --release 2026-09-23.1` (or invoke the Silver then Gold Lambda with `{"release": …, "run_id": "manual"}`).
-- **Roll back what readers see:** write the previous release into `gold/_current.json` (versioned bucket, so the old object is also there).
+- **Roll back what readers see:** write the previous release into `gold/_current.json` (versioned bucket, so the old object is also there). A rebuild never does this for you.
 - **Rebuild a release Overture has deleted:** bronze still has it; the manifest entries say which fingerprints.

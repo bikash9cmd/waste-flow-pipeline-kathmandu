@@ -136,7 +136,12 @@ def run_gold(lake: Lake, release: str, run_id: str | None = None) -> dict:
     out = gold.build_gold(s["population"], s["haul"], s["access"], s["facilities"], history)
 
     current = read_json(lake, CURRENT)
-    previous_release = current["release"] if current and current["release"] != release else None
+    # Only an older published release is a fair baseline, and only a release at least as
+    # new as the published one may take over the pointer. Rebuilding an old release (for
+    # example one Overture has deleted) refreshes its gold tables but must not roll readers
+    # back; rolling back is a deliberate manual step (docs/FAILURE_MODES.md).
+    previous_release = current["release"] if current and current["release"] < release else None
+    becomes_current = current is None or release >= current["release"]
     previous_gold = None
     if previous_release:
         previous_gold = {"facility_registry": _read_df(lake, gold_key(previous_release, "facility_registry"))}
@@ -147,6 +152,7 @@ def run_gold(lake: Lake, release: str, run_id: str | None = None) -> dict:
     issues = build["issues"] + quality.gold_checks(out, previous_gold)
     verdict = quality.decide(issues)
     report = {"run_id": run_id, "release": release, "inputs": build["inputs"], **verdict,
+              "becomes_current": verdict["passed"] and becomes_current,
               "rows": {k: len(v) for k, v in out.items()}, "at": datetime.now(UTC).isoformat()}
     write_json(lake, f"quality/release={release}/run={run_id}.json", report)
     if not verdict["passed"]:
@@ -154,7 +160,17 @@ def run_gold(lake: Lake, release: str, run_id: str | None = None) -> dict:
         return report
     for name, df in out.items():
         _write_df(lake, gold_key(release, name), df)
+    if not becomes_current:
+        log.warning("rebuilt %s; %s stays current", release, current["release"])
+        return report
     write_json(lake, CURRENT, {"release": release, "run_id": run_id, "published_at": report["at"]})
+    return report
+
+
+def record_blocked_silver(lake: Lake, release: str, issues: list[dict]) -> dict:
+    """Write the quality report for a release whose silver build was blocked, and return it."""
+    report = {"release": release, **quality.decide(issues)}
+    write_json(lake, f"quality/release={release}/run={new_run_id()}.json", report)
     return report
 
 
@@ -169,9 +185,8 @@ def run_all(source: Source, hrsl_source: Source, lake: Lake, release: str | None
             return {"release": rel, "ingest": ing, "status": "unchanged"}
     sv = run_silver(lake, rel)
     if not sv["built"]:
-        report = quality.decide(sv["issues"])
-        write_json(lake, f"quality/release={rel}/run={new_run_id()}.json", {"release": rel, **report})
-        return {"release": rel, "ingest": ing, "status": "blocked", **report}
+        report = record_blocked_silver(lake, rel, sv["issues"])
+        return {"ingest": ing, "status": "blocked", **report}
     report = run_gold(lake, rel)
     return {"release": rel, "ingest": ing, "status": "published" if report["passed"] else "blocked", "gold": report}
 
