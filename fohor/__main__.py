@@ -60,7 +60,12 @@ def _dispatch(args, lake) -> int:
         print(json.dumps({k: v for k, v in result.items() if k != "ingest"}, indent=2, default=str, ensure_ascii=False))
         return 0 if result["status"] != "blocked" else 1
     if args.cmd == "rebuild":
-        pipeline.run_silver(lake, args.release)
+        silver = pipeline.run_silver(lake, args.release)
+        if not silver["built"]:
+            # Same as run_all: without this, run_gold would publish the release's previous silver.
+            report = pipeline.record_blocked_silver(lake, args.release, silver["issues"])
+            print(json.dumps(report, indent=2, default=str, ensure_ascii=False))
+            return 1
         report = pipeline.run_gold(lake, args.release)
         print(json.dumps(report, indent=2, default=str, ensure_ascii=False))
         return 0 if report["passed"] else 1

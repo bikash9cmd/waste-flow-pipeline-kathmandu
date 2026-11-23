@@ -82,3 +82,20 @@ def test_hrsl_missing_is_an_error(upstream, lake, tmp_path):
     with pytest.raises(RuntimeError):
         ingest_hrsl(empty, lake)
     assert isinstance(pd.DataFrame(), pd.DataFrame)
+
+
+def test_rebuilding_an_older_release_does_not_roll_readers_back(upstream, lake):
+    _run(upstream, lake)
+    make_release(upstream, RELEASE_B)
+    assert _run(upstream, lake, RELEASE_B)["status"] == "published"
+
+    pipeline.run_silver(lake, RELEASE_A)
+    report = pipeline.run_gold(lake, RELEASE_A)
+    assert report["passed"] and report["becomes_current"] is False
+    assert read_json(lake, pipeline.CURRENT)["release"] == RELEASE_B
+    assert lake.exists(pipeline.gold_key(RELEASE_A, "municipality_waste"))  # the old release is still refreshed
+
+    # Rebuilding the published release itself keeps it current.
+    pipeline.run_silver(lake, RELEASE_B)
+    assert pipeline.run_gold(lake, RELEASE_B)["becomes_current"] is True
+    assert read_json(lake, pipeline.CURRENT)["release"] == RELEASE_B

@@ -47,3 +47,22 @@ def test_unexpected_errors_still_raise(published, monkeypatch):
     monkeypatch.setattr("fohor.__main__.blockade_report", boom)
     with pytest.raises(KeyError):
         main(["--lake", published, "blockade"])
+
+
+def test_rebuild_stops_when_silver_is_blocked(published, monkeypatch, capsys):
+    from fohor.storage import open_lake
+    from tests.conftest import RELEASE_A
+
+    issue = {"check": "district_census", "severity": "block", "detail": "no 2021 census total for Lalitpur"}
+    monkeypatch.setattr(pipeline, "run_silver", lambda lake, release: {"release": release, "issues": [issue],
+                                                                       "built": False})
+
+    def must_not_run(*_):
+        raise AssertionError("run_gold must not publish the previous silver")
+
+    monkeypatch.setattr(pipeline, "run_gold", must_not_run)
+    lake = open_lake(published)
+    before = lake.list(f"quality/release={RELEASE_A}/")
+    assert main(["--lake", published, "rebuild", "--release", RELEASE_A]) == 1
+    assert '"passed": false' in capsys.readouterr().out
+    assert len(lake.list(f"quality/release={RELEASE_A}/")) == len(before) + 1
